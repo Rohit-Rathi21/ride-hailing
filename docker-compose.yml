@@ -1,0 +1,108 @@
+version: "3.9"
+
+services:
+  # -------------------------
+  # MONGO DATABASE
+  # -------------------------
+  mongo:
+    image: mongo
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # -------------------------
+  # REDIS CACHE
+  # -------------------------
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  # -------------------------
+  # RABBITMQ BROKER
+  # -------------------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------
+  # AUTH SERVICE
+  # -------------------------
+  auth-service:
+    build: ./services/auth
+    container_name: auth-service
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongo
+
+  # -------------------------
+  # RIDER SERVICE
+  # -------------------------
+  rider-service:
+    build: ./services/rider
+    container_name: rider-service
+    ports:
+      - "3002:3002"
+    depends_on:
+      - mongo
+      - rabbitmq
+
+  # -------------------------
+  # DRIVER SERVICE
+  # -------------------------
+  driver-service:
+    build: ./services/driver
+    container_name: driver-service
+    ports:
+      - "3003:3003"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBIT_URL=amqp://rabbitmq:5672
+      - MONGO_URI=mongodb://mongo:27017/ridehailing
+      - REDIS_URL=redis://redis:6379
+      - RIDE_SERVICE_URL=http://ride-service:3004
+
+  # -------------------------
+  # RIDE SERVICE
+  # -------------------------
+  ride-service:
+    build: ./services/ride
+    container_name: ride-service
+    ports:
+      - "3004:3004"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBIT_URL=amqp://rabbitmq:5672
+
+  # -------------------------
+  # API GATEWAY
+  # -------------------------
+  gateway:
+    build: ./gateway
+    container_name: api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - rider-service
+      - driver-service
+      - ride-service
+
+volumes:
+  mongo_data:
