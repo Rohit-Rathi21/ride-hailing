@@ -83,11 +83,14 @@ router.post("/cancel", async (req, res) => {
     ride.cancelledAt = new Date();
     await ride.save();
 
-    publishRideCancelled({
-      rideId,
-      driverId: ride.driverId,
-      riderId: ride.riderId
-    });
+    // publish cancel event to driver-service
+    if (req.publishRideCancelled) {
+      req.publishRideCancelled({
+        rideId,
+        driverId: ride.driverId,
+        riderId: ride.riderId
+      });
+    }
 
     res.json({ message: "Ride cancelled", ride });
   } catch (err) {

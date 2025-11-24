@@ -19,9 +19,10 @@ const app = express();
 app.use(bodyParser.json());
 app.use(morgan("dev"));
 
-// Expose the publish function to routes if needed (same pattern we used)
+// Expose the publish functions to routes if needed (same pattern we used)
 app.use((req, res, next) => {
   req.publishRideRequest = publishRideRequest;
+  req.publishRideCancelled = publishRideCancelled;
   next();
 });
 

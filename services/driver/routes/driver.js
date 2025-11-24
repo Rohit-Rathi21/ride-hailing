@@ -82,9 +82,15 @@ router.post("/accept", async (req, res) => {
     // call ride-service status endpoint
     await axios.post(`${rideServiceUrl}/ride/${rideId}/status`, { status: "accepted" });
 
-    // clear assignment
+    // Update assignment status in Redis instead of deleting
     const redis = getRedisClient();
-    await redis.del(`assigned:${driverId}`);
+    const key = `assigned:${driverId}`;
+    const raw = await redis.get(key);
+    if (raw) {
+      const ride = JSON.parse(raw);
+      ride.status = "accepted";
+      await redis.set(key, JSON.stringify(ride));
+    }
 
     console.log("Ride accepted:", rideId, "by driver:", driverId);
     res.json({ message: "Ride accepted" });
@@ -108,8 +114,15 @@ router.post("/start", async (req, res) => {
 
     await axios.post(`${rideServiceUrl}/ride/${rideId}/status`, { status: "ongoing" });
 
+    // Update assignment status in Redis instead of deleting
     const redis = getRedisClient();
-    await redis.del(`assigned:${driverId}`);
+    const key = `assigned:${driverId}`;
+    const raw = await redis.get(key);
+    if (raw) {
+      const ride = JSON.parse(raw);
+      ride.status = "ongoing";
+      await redis.set(key, JSON.stringify(ride));
+    }
 
     console.log("Ride started:", rideId, "by driver:", driverId);
     res.json({ message: "Ride started" });
