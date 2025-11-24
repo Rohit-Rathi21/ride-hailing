@@ -9,6 +9,8 @@ export default function Register() {
   const [role, setRole] = useState("user");
   const [vehicleModel, setVehicleModel] = useState("");
   const [vehiclePlate, setVehiclePlate] = useState("");
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
 
   const nav = useNavigate();
   
@@ -17,7 +19,145 @@ export default function Register() {
   const titleRef = useRef(null);
   const vehicleRef = useRef(null);
 
+  const validateField = (fieldName, value) => {
+    let error = "";
+    
+    switch (fieldName) {
+      case "name":
+        if (!value.trim()) {
+          error = "Name is required";
+        } else if (value.trim().length < 2) {
+          error = "Name must be at least 2 characters";
+        } else if (!/^[a-zA-Z\s]+$/.test(value.trim())) {
+          error = "Name can only contain letters and spaces";
+        }
+        break;
+      
+      case "phone":
+        if (!value.trim()) {
+          error = "Phone number is required";
+        } else if (!/^[0-9]{10}$/.test(value.trim())) {
+          error = "Phone number must be exactly 10 digits";
+        }
+        break;
+      
+      case "password":
+        if (!value) {
+          error = "Password is required";
+        } else {
+          const issues = [];
+          if (value.length < 6) issues.push("at least 6 characters");
+          if (!/(?=.*[a-z])/.test(value)) issues.push("one lowercase letter");
+          if (!/(?=.*[A-Z])/.test(value)) issues.push("one uppercase letter");
+          if (!/(?=.*[0-9])/.test(value)) issues.push("one number");
+          
+          if (issues.length > 0) {
+            error = `Password must contain: ${issues.join(", ")}`;
+          }
+        }
+        break;
+      
+      case "vehicleModel":
+        if (role === "driver" && !value.trim()) {
+          error = "Vehicle model is required for drivers";
+        } else if (role === "driver" && value.trim().length < 2) {
+          error = "Vehicle model must be at least 2 characters";
+        }
+        break;
+      
+      case "vehiclePlate":
+        if (role === "driver" && !value.trim()) {
+          error = "License plate is required for drivers";
+        } else if (role === "driver" && value.trim().length < 3) {
+          error = "License plate must be at least 3 characters";
+        }
+        break;
+      
+      default:
+        break;
+    }
+    
+    return error;
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    newErrors.name = validateField("name", name);
+    newErrors.phone = validateField("phone", phone);
+    newErrors.password = validateField("password", password);
+    
+    if (role === "driver") {
+      newErrors.vehicleModel = validateField("vehicleModel", vehicleModel);
+      newErrors.vehiclePlate = validateField("vehiclePlate", vehiclePlate);
+    }
+    
+    setErrors(newErrors);
+    return !Object.values(newErrors).some(error => error !== "");
+  };
+
+  const handleBlur = (field) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    const error = validateField(field, eval(field));
+    setErrors(prev => ({ ...prev, [field]: error }));
+  };
+
+  const handleNameChange = (e) => {
+    const value = e.target.value;
+    setName(value);
+    if (touched.name) {
+      const error = validateField("name", value);
+      setErrors(prev => ({ ...prev, name: error }));
+    }
+  };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setPhone(value);
+    if (touched.phone) {
+      const error = validateField("phone", value);
+      setErrors(prev => ({ ...prev, phone: error }));
+    }
+  };
+
+  const handlePasswordChange = (e) => {
+    const value = e.target.value;
+    setPassword(value);
+    if (touched.password) {
+      const error = validateField("password", value);
+      setErrors(prev => ({ ...prev, password: error }));
+    }
+  };
+
+  const handleVehicleModelChange = (e) => {
+    const value = e.target.value;
+    setVehicleModel(value);
+    if (touched.vehicleModel) {
+      const error = validateField("vehicleModel", value);
+      setErrors(prev => ({ ...prev, vehicleModel: error }));
+    }
+  };
+
+  const handleVehiclePlateChange = (e) => {
+    const value = e.target.value.toUpperCase();
+    setVehiclePlate(value);
+    if (touched.vehiclePlate) {
+      const error = validateField("vehiclePlate", value);
+      setErrors(prev => ({ ...prev, vehiclePlate: error }));
+    }
+  };
+
   const register = async () => {
+    const fieldsToTouch = { name: true, phone: true, password: true };
+    if (role === "driver") {
+      fieldsToTouch.vehicleModel = true;
+      fieldsToTouch.vehiclePlate = true;
+    }
+    setTouched(fieldsToTouch);
+    
+    if (!validateForm()) {
+      return;
+    }
     try {
       if (role === "user") {
         const res = await api.post("/auth/register", {
@@ -99,24 +239,43 @@ export default function Register() {
             <label className="block text-slate-200 font-semibold mb-2 text-sm">Full Name</label>
             <div className="relative">
               <input
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
+                className={`w-full px-4 py-3 bg-slate-950 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                  touched.name && errors.name
+                    ? "border-red-500 focus:border-red-400"
+                    : "border-slate-800 focus:border-slate-400"
+                }`}
                 placeholder="Enter your name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={handleNameChange}
+                onBlur={() => handleBlur("name")}
+                type="text"
               />
             </div>
+            {touched.name && errors.name && (
+              <p className="mt-1 text-sm text-red-400">{errors.name}</p>
+            )}
           </div>
 
           <div className="mb-5">
             <label className="block text-slate-200 font-semibold mb-2 text-sm">Phone Number</label>
             <div className="relative">
               <input
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
-                placeholder="Enter your phone"
+                className={`w-full px-4 py-3 bg-slate-950 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                  touched.phone && errors.phone
+                    ? "border-red-500 focus:border-red-400"
+                    : "border-slate-800 focus:border-slate-400"
+                }`}
+                placeholder="Enter your phone (10 digits)"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={handlePhoneChange}
+                onBlur={() => handleBlur("phone")}
+                type="tel"
+                maxLength={10}
               />
             </div>
+            {touched.phone && errors.phone && (
+              <p className="mt-1 text-sm text-red-400">{errors.phone}</p>
+            )}
           </div>
 
           <div className="mb-5">
@@ -124,12 +283,21 @@ export default function Register() {
             <div className="relative">
               <input
                 type="password"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
+                className={`w-full px-4 py-3 bg-slate-950 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                  touched.password && errors.password
+                    ? "border-red-500 focus:border-red-400"
+                    : "border-slate-800 focus:border-slate-400"
+                }`}
                 placeholder="Create a password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={handlePasswordChange}
+                onBlur={() => handleBlur("password")}
               />
             </div>
+            {touched.password && errors.password && (
+              <p className="mt-1 text-sm text-red-400">{errors.password}</p>
+            )}
+            <p className="mt-1 text-xs text-slate-500">Must contain uppercase, lowercase, and number (min 6 chars)</p>
           </div>
 
           {role === "driver" && (
@@ -140,21 +308,39 @@ export default function Register() {
               <div className="mb-4">
                 <label className="block text-slate-400 font-semibold mb-2 text-sm">Vehicle Model</label>
                 <input
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
+                  className={`w-full px-4 py-3 bg-slate-900 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                    touched.vehicleModel && errors.vehicleModel
+                      ? "border-red-500 focus:border-red-400"
+                      : "border-slate-800 focus:border-slate-400"
+                  }`}
                   placeholder="e.g., Toyota Camry"
                   value={vehicleModel}
-                  onChange={(e) => setVehicleModel(e.target.value)}
+                  onChange={handleVehicleModelChange}
+                  onBlur={() => handleBlur("vehicleModel")}
+                  type="text"
                 />
+                {touched.vehicleModel && errors.vehicleModel && (
+                  <p className="mt-1 text-sm text-red-400">{errors.vehicleModel}</p>
+                )}
               </div>
 
               <div>
                 <label className="block text-slate-400 font-semibold mb-2 text-sm">License Plate</label>
                 <input
-                  className="w-full px-4 py-3 bg-slate-900 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
+                  className={`w-full px-4 py-3 bg-slate-900 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                    touched.vehiclePlate && errors.vehiclePlate
+                      ? "border-red-500 focus:border-red-400"
+                      : "border-slate-800 focus:border-slate-400"
+                  }`}
                   placeholder="e.g., ABC-1234"
                   value={vehiclePlate}
-                  onChange={(e) => setVehiclePlate(e.target.value)}
+                  onChange={handleVehiclePlateChange}
+                  onBlur={() => handleBlur("vehiclePlate")}
+                  type="text"
                 />
+                {touched.vehiclePlate && errors.vehiclePlate && (
+                  <p className="mt-1 text-sm text-red-400">{errors.vehiclePlate}</p>
+                )}
               </div>
             </div>
           )}

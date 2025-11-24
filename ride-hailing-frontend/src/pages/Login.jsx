@@ -6,13 +6,81 @@ export default function Login() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
+  const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
   const nav = useNavigate();
   
   const containerRef = useRef(null);
   const formRef = useRef(null);
   const titleRef = useRef(null);
 
+  const validateField = (name, value) => {
+    let error = "";
+    
+    switch (name) {
+      case "phone":
+        if (!value.trim()) {
+          error = "Phone number is required";
+        } else if (!/^[0-9]{10}$/.test(value.trim())) {
+          error = "Phone number must be exactly 10 digits";
+        }
+        break;
+      
+      case "password":
+        if (!value) {
+          error = "Password is required";
+        } else if (value.length < 6) {
+          error = "Password must be at least 6 characters";
+        }
+        break;
+      
+      default:
+        break;
+    }
+    
+    return error;
+  };
+
+  const validateForm = () => {
+    const newErrors = {};
+    
+    newErrors.phone = validateField("phone", phone);
+    newErrors.password = validateField("password", password);
+    
+    setErrors(newErrors);
+    return !Object.values(newErrors).some(error => error !== "");
+  };
+
+  const handleBlur = (field) => {
+    setTouched(prev => ({ ...prev, [field]: true }));
+    const error = validateField(field, eval(field));
+    setErrors(prev => ({ ...prev, [field]: error }));
+  };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+    setPhone(value);
+    if (touched.phone) {
+      const error = validateField("phone", value);
+      setErrors(prev => ({ ...prev, phone: error }));
+    }
+  };
+
+  const handlePasswordChange = (e) => {
+    const value = e.target.value;
+    setPassword(value);
+    if (touched.password) {
+      const error = validateField("password", value);
+      setErrors(prev => ({ ...prev, password: error }));
+    }
+  };
+
   const login = async () => {
+    setTouched({ phone: true, password: true });
+    
+    if (!validateForm()) {
+      return;
+    }
     try {
       const res = await api.post("/auth/login", {
         phone,
@@ -92,12 +160,22 @@ export default function Login() {
             <label className="block text-slate-200 font-semibold mb-2 text-sm">Phone Number</label>
             <div className="relative">
               <input
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
-                placeholder="Enter your phone"
+                className={`w-full px-4 py-3 bg-slate-950 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                  touched.phone && errors.phone
+                    ? "border-red-500 focus:border-red-400"
+                    : "border-slate-800 focus:border-slate-400"
+                }`}
+                placeholder="Enter your phone (10 digits)"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={handlePhoneChange}
+                onBlur={() => handleBlur("phone")}
+                type="tel"
+                maxLength={10}
               />
             </div>
+            {touched.phone && errors.phone && (
+              <p className="mt-1 text-sm text-red-400">{errors.phone}</p>
+            )}
           </div>
 
           <div className="mb-6">
@@ -105,12 +183,20 @@ export default function Login() {
             <div className="relative">
               <input
                 type="password"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 text-slate-50 focus:border-slate-400 focus:outline-none transition-colors placeholder:text-slate-600"
+                className={`w-full px-4 py-3 bg-slate-950 border text-slate-50 focus:outline-none transition-colors placeholder:text-slate-600 ${
+                  touched.password && errors.password
+                    ? "border-red-500 focus:border-red-400"
+                    : "border-slate-800 focus:border-slate-400"
+                }`}
                 placeholder="Enter your password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={handlePasswordChange}
+                onBlur={() => handleBlur("password")}
               />
             </div>
+            {touched.password && errors.password && (
+              <p className="mt-1 text-sm text-red-400">{errors.password}</p>
+            )}
           </div>
 
           <button
