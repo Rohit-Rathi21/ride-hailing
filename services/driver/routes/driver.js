@@ -39,28 +39,36 @@ router.post("/offline", async (req, res) => {
   }
 });
 
+/** GET /driver/pending
+ * Get all pending ride requests available for acceptance
+ */
+router.get("/pending", async (req, res) => {
+  try {
+    const rideServiceUrl = getRideServiceUrl();
+    const response = await axios.get(`${rideServiceUrl}/ride/pending`);
+    res.json(response.data);
+  } catch (err) {
+    console.error("Pending rides error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 /** GET /driver/assigned/:driverId */
 router.get("/assigned/:driverId", async (req, res) => {
   try {
     const { driverId } = req.params;
-    const redis = getRedisClient();
-    const key = `assigned:${driverId}`;
-    const raw = await redis.get(key);
-    if (!raw) return res.json({ ride: null });
-    const ride = JSON.parse(raw);
+    const rideServiceUrl = getRideServiceUrl();
+    
+    // Fetch rides assigned to this driver from ride service
+    const response = await axios.get(`${rideServiceUrl}/ride/history/driver/${driverId}`);
+    const rides = response.data;
+    
+    // Get the most recent active ride (assigned, accepted, or ongoing)
+    const activeRide = rides.find(r => 
+      r.status === "assigned" || r.status === "accepted" || r.status === "ongoing"
+    );
 
-    const fixedRide = {
-      _id: ride.rideId,
-      rideId: ride.rideId,
-      riderId: ride.riderId,
-      driverId: ride.driverId,
-      pickup: ride.pickup,
-      dropoff: ride.dropoff,
-      createdAt: ride.createdAt || null,
-      status: ride.status || "assigned"
-    };
-
-    return res.json({ ride: fixedRide });
+    return res.json({ ride: activeRide || null });
   } catch (err) {
     console.error("Assigned error:", err);
     res.status(500).json({ message: "Server error" });
@@ -69,7 +77,7 @@ router.get("/assigned/:driverId", async (req, res) => {
 
 /**
  * POST /driver/accept { driverId, rideId }
- * Calls ride service to set status accepted
+ * Driver accepts a pending ride request
  */
 router.post("/accept", async (req, res) => {
   try {
@@ -79,24 +87,16 @@ router.post("/accept", async (req, res) => {
     const rideServiceUrl = getRideServiceUrl();
     console.log("ACCEPT: calling rideService", { rideServiceUrl, driverId, rideId });
 
-    // call ride-service status endpoint
-    await axios.post(`${rideServiceUrl}/ride/${rideId}/status`, { status: "accepted" });
-
-    // Update assignment status in Redis instead of deleting
-    const redis = getRedisClient();
-    const key = `assigned:${driverId}`;
-    const raw = await redis.get(key);
-    if (raw) {
-      const ride = JSON.parse(raw);
-      ride.status = "accepted";
-      await redis.set(key, JSON.stringify(ride));
-    }
+    // Call ride-service accept endpoint (this assigns the ride to the driver)
+    const response = await axios.post(`${rideServiceUrl}/ride/accept`, { rideId, driverId });
 
     console.log("Ride accepted:", rideId, "by driver:", driverId);
-    res.json({ message: "Ride accepted" });
+    res.json(response.data);
   } catch (err) {
     console.error("Error accepting ride:", err.response?.data || err.message || err);
-    res.status(500).json({ message: "Server error" });
+    const statusCode = err.response?.status || 500;
+    const message = err.response?.data?.message || "Server error";
+    res.status(statusCode).json({ message });
   }
 });
 

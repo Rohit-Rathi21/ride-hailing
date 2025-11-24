@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 export default function DriverDashboard() {
   const [online, setOnline] = useState(false);
   const [ride, setRide] = useState(null);
+  const [pendingRides, setPendingRides] = useState([]);
   const [status, setStatus] = useState("Offline");
   const nav = useNavigate();
 
@@ -35,7 +36,7 @@ export default function DriverDashboard() {
   };
 
   // -----------------------------
-  // POLL FOR RIDE ASSIGNMENTS
+  // POLL FOR PENDING RIDES & ASSIGNED RIDES
   // -----------------------------
   useEffect(() => {
     if (!online) return;
@@ -46,9 +47,9 @@ export default function DriverDashboard() {
 
     const interval = setInterval(async () => {
       try {
-        const res = await api.get(`/driver/assigned/${driverId}`);
-        // defensive: server returns { ride: null } or { ride: {...} }
-        const r = res.data?.ride;
+        // Check for assigned ride
+        const assignedRes = await api.get(`/driver/assigned/${driverId}`);
+        const r = assignedRes.data?.ride;
         if (r) {
           // normalize: assignment may contain rideId or _id
           const normalized = {
@@ -63,13 +64,17 @@ export default function DriverDashboard() {
           };
           setRide(normalized);
           setStatus(r.status === "accepted" ? "Ride Accepted" : r.status === "ongoing" ? "Ride Started" : "Ride Assigned");
+          setPendingRides([]); // Clear pending rides when driver has an active ride
         } else {
-          // No ride assignment - clear if exists
           setRide(null);
           setStatus("Online");
+          
+          // Fetch pending rides only if no assigned ride
+          const pendingRes = await api.get("/driver/pending");
+          setPendingRides(pendingRes.data || []);
         }
       } catch (err) {
-        /* Ignore polling errors for now */
+        console.error("Polling error:", err);
       }
     }, 3000);
 
@@ -85,14 +90,17 @@ export default function DriverDashboard() {
   // -----------------------------
   // ACCEPT RIDE
   // -----------------------------
-  const acceptRide = async () => {
+  const acceptRide = async (rideId) => {
     try {
       const driverId = localStorage.getItem("userId");
-      await api.post("/driver/accept", { driverId, rideId: ride._id });
+      await api.post("/driver/accept", { driverId, rideId });
       setStatus("Ride Accepted");
+      // Clear pending rides and fetch assigned ride
+      setPendingRides([]);
     } catch (err) {
       console.error(err);
-      alert("Failed to accept ride");
+      const errorMsg = err.response?.data?.message || "Failed to accept ride";
+      alert(errorMsg);
     }
 };
 
@@ -176,7 +184,7 @@ const completeRide = async () => {
         {ride ? (
           <div className="bg-slate-900 border border-slate-800 shadow-2xl p-6 sm:p-8">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold text-slate-50">New Ride Request</h2>
+              <h2 className="text-xl sm:text-2xl font-bold text-slate-50">Your Current Ride</h2>
               <span className="bg-slate-800 text-slate-200 px-4 py-2 text-xs sm:text-sm font-bold shadow-md border border-slate-700">
                 {ride.status?.toUpperCase() || 'ACTIVE'}
               </span>
@@ -215,28 +223,77 @@ const completeRide = async () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <button
-                onClick={acceptRide}
-                className="bg-slate-50 text-slate-900 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-200 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base"
-              >
-                Accept
-              </button>
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={startRide}
-                className="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-800 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base"
+                disabled={ride.status !== "assigned"}
+                className="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-800 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
-                Start
+                Start Ride
               </button>
 
               <button
                 onClick={completeRide}
-                className="bg-slate-900 border border-slate-800 text-slate-200 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-800 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base"
+                disabled={ride.status !== "ongoing"}
+                className="bg-slate-50 text-slate-900 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-200 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
               >
-                Complete
+                Complete Ride
               </button>
             </div>
+          </div>
+        ) : pendingRides.length > 0 ? (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-slate-50 mb-4">Available Ride Requests</h2>
+            {pendingRides.map((pendingRide) => (
+              <div key={pendingRide._id} className="bg-slate-900 border border-slate-800 shadow-2xl p-6 sm:p-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+                  <h3 className="text-xl font-bold text-slate-50">New Ride Request</h3>
+                  <span className="bg-amber-600 text-slate-50 px-4 py-2 text-xs sm:text-sm font-bold shadow-md">
+                    PENDING
+                  </span>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  <div className="flex items-start space-x-3 bg-slate-950 p-4 border border-slate-800">
+                    <div className="bg-slate-900 p-2.5 flex-shrink-0 border border-slate-800">
+                      <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm text-slate-400 font-semibold mb-1">Pickup Location</p>
+                      <p className="text-base sm:text-lg font-bold text-slate-50 break-words">{pendingRide.pickup}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 bg-slate-950 p-4 border border-slate-800">
+                    <div className="bg-slate-900 p-2.5 flex-shrink-0 border border-slate-800">
+                      <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs sm:text-sm text-slate-400 font-semibold mb-1">Drop-off Location</p>
+                      <p className="text-base sm:text-lg font-bold text-slate-50 break-words">{pendingRide.dropoff}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 p-4 border border-slate-800">
+                    <p className="text-xs text-slate-400 mb-1">Ride ID</p>
+                    <p className="text-xs sm:text-sm font-mono text-slate-200 break-all">{pendingRide._id}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => acceptRide(pendingRide._id)}
+                  className="w-full bg-slate-50 text-slate-900 font-bold py-3.5 px-6 shadow-lg hover:bg-slate-200 transform hover:scale-105 transition-all duration-300 text-sm sm:text-base"
+                >
+                  Accept This Ride
+                </button>
+              </div>
+            ))}
           </div>
         ) : online ? (
           <div className="bg-slate-900 border border-slate-800 shadow-xl p-8 sm:p-12 text-center">

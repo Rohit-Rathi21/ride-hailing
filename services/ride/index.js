@@ -32,13 +32,13 @@ app.get("/", (req, res) => res.send("Ride Service running"));
 const PORT = process.env.PORT || 3004;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/ridehailing";
 
-// pick a driver from redis set
-async function pickDriver() {
+// Get all online drivers from redis
+async function getAllOnlineDrivers() {
   try {
-    return await redis.srandmember("online_drivers");
+    return await redis.smembers("online_drivers");
   } catch (err) {
-    console.error("pickDriver error:", err);
-    return null;
+    console.error("getAllOnlineDrivers error:", err);
+    return [];
   }
 }
 
@@ -50,30 +50,29 @@ async function handleIncomingRide(data) {
       riderId,
       pickup,
       dropoff,
-      status: "requested",
+      status: "pending",
     });
 
-    const driverId = await pickDriver();
-    if (!driverId) {
+    // Get all online drivers
+    const onlineDrivers = await getAllOnlineDrivers();
+    
+    if (onlineDrivers.length === 0) {
       console.log("No drivers available for ride:", ride._id.toString());
       return;
     }
 
-    ride.driverId = driverId;
-    ride.status = "assigned";
-    ride.assignedAt = new Date();
-    await ride.save();
-
-    publishDriverAssignment({
-      assignmentId: ride._id.toString(),
+    // Store ride in Redis with pending status so all drivers can see it
+    await redis.set(`ride:pending:${ride._id.toString()}`, JSON.stringify({
       rideId: ride._id.toString(),
       riderId,
-      driverId,
       pickup,
       dropoff,
-    });
+      status: "pending",
+      createdAt: ride.createdAt
+    }), { EX: 3600 }); // Expire after 1 hour
 
-    console.log(`Ride ${ride._id.toString()} assigned to driver ${driverId}`);
+    // Broadcast to ALL online drivers (no auto-assignment)
+    console.log(`Ride ${ride._id.toString()} broadcast to ${onlineDrivers.length} online drivers`);
   } catch (err) {
     console.error("handleIncomingRide error:", err);
     throw err;
