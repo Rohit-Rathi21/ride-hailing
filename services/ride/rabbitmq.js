@@ -2,98 +2,69 @@
 const amqp = require("amqplib");
 
 let channel = null;
-let connection = null;
-
-// Queue names (single source of truth)
 const RIDE_REQUEST_QUEUE = "ride_requests";
 const DRIVER_ASSIGNMENT_QUEUE = "driver_assignments";
 const RIDE_CANCELLED_QUEUE = "ride_cancelled";
 
-/**
- * Connect to RabbitMQ and initialise channel + queues
- * Returns when channel is ready.
- */
 async function connectRabbit() {
-  try {
-    const amqpUrl =
-      process.env.RABBIT_URL ||
-      process.env.RABBITMQ_URL ||
-      "amqp://rabbitmq:5672";
+  const amqpUrl = process.env.RABBITMQ_URL || process.env.RIDE_SERVICE_RABBIT_URL || "amqp://rabbitmq";
+  const maxRetries = 12;
+  let attempt = 0;
 
-    connection = await amqp.connect(amqpUrl);
-    channel = await connection.createChannel();
+  while (attempt < maxRetries) {
+    try {
+      const connection = await amqp.connect(amqpUrl);
+      channel = await connection.createChannel();
 
-    await channel.assertQueue(RIDE_REQUEST_QUEUE, { durable: true });
-    await channel.assertQueue(DRIVER_ASSIGNMENT_QUEUE, { durable: true });
-    await channel.assertQueue(RIDE_CANCELLED_QUEUE, { durable: true });
+      await channel.assertQueue(RIDE_REQUEST_QUEUE, { durable: true });
+      await channel.assertQueue(DRIVER_ASSIGNMENT_QUEUE, { durable: true });
+      await channel.assertQueue(RIDE_CANCELLED_QUEUE, { durable: true });
 
-    console.log("Ride Service connected to RabbitMQ");
-    return true;
-  } catch (err) {
-    console.error("RabbitMQ connection error:", err);
-    throw err;
+      console.log("Ride Service connected to RabbitMQ");
+      return;
+    } catch (err) {
+      attempt++;
+      console.error(`RabbitMQ connection error (attempt ${attempt}):`, err.message || err);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
   }
+
+  console.error("Could not connect to RabbitMQ after retries");
+  process.exit(1);
 }
 
-/**
- * Publish a ride request (rider -> ride_requests)
- */
 function publishRideRequest(data) {
   if (!channel) {
-    console.error("❌ Cannot publish ride request — channel not ready");
+    console.error("❌ publishRideRequest: channel not ready");
     return false;
   }
-  channel.sendToQueue(
-    RIDE_REQUEST_QUEUE,
-    Buffer.from(JSON.stringify(data)),
-    { persistent: true }
-  );
+  channel.sendToQueue(RIDE_REQUEST_QUEUE, Buffer.from(JSON.stringify(data)), { persistent: true });
   console.log("📤 Published Ride Request:", data);
   return true;
 }
 
-/**
- * Publish driver assignment (ride-service -> driver_assignments)
- */
 function publishDriverAssignment(data) {
   if (!channel) {
-    console.error("❌ Cannot publish assignment — channel not ready");
+    console.error("❌ publishDriverAssignment: channel not ready");
     return false;
   }
-  channel.sendToQueue(
-    DRIVER_ASSIGNMENT_QUEUE,
-    Buffer.from(JSON.stringify(data)),
-    { persistent: true }
-  );
+  channel.sendToQueue(DRIVER_ASSIGNMENT_QUEUE, Buffer.from(JSON.stringify(data)), { persistent: true });
   console.log("📤 Published Driver Assignment:", data);
   return true;
 }
 
-/**
- * Publish ride cancelled (rider -> ride_cancelled)
- */
 function publishRideCancelled(data) {
   if (!channel) {
-    console.error("❌ Cannot publish ride cancelled — channel not ready");
+    console.error("❌ publishRideCancelled: channel not ready");
     return false;
   }
-  channel.sendToQueue(
-    RIDE_CANCELLED_QUEUE,
-    Buffer.from(JSON.stringify(data)),
-    { persistent: true }
-  );
+  channel.sendToQueue(RIDE_CANCELLED_QUEUE, Buffer.from(JSON.stringify(data)), { persistent: true });
   console.log("📤 Published Ride Cancelled:", data);
   return true;
 }
 
-/**
- * Start consumer for ride_requests
- * handlerCallback: async function(data) => { ... }
- */
-async function startRideRequestConsumer(handlerCallback) {
-  if (!channel) {
-    throw new Error("RabbitMQ channel not ready");
-  }
+async function startRideRequestConsumer(handler) {
+  if (!channel) return console.error("❌ startRideRequestConsumer: channel not ready");
 
   await channel.consume(
     RIDE_REQUEST_QUEUE,
@@ -102,35 +73,11 @@ async function startRideRequestConsumer(handlerCallback) {
       try {
         const data = JSON.parse(msg.content.toString());
         console.log("📥 Received Ride Request:", data);
-        await handlerCallback(data);
+        await handler(data);
         channel.ack(msg);
       } catch (err) {
-        console.error("❌ Ride request processing error:", err);
-        // requeue for retry
-        channel.nack(msg, false, true);
-      }
-    },
-    { noAck: false }
-  );
-}
-
-/**
- * Optionally allow other services to consume driver_assignments or ride_cancelled queues
- * (exported here if needed)
- */
-async function startGenericConsumer(queueName, handlerCallback) {
-  if (!channel) throw new Error("RabbitMQ channel not ready");
-  await channel.consume(
-    queueName,
-    async (msg) => {
-      if (!msg) return;
-      try {
-        const data = JSON.parse(msg.content.toString());
-        await handlerCallback(data);
-        channel.ack(msg);
-      } catch (err) {
-        console.error(`Consumer error for ${queueName}:`, err);
-        channel.nack(msg, false, true);
+        console.error("❌ ride request processing error:", err);
+        channel.nack(msg, false, true); // requeue
       }
     },
     { noAck: false }
@@ -140,8 +87,7 @@ async function startGenericConsumer(queueName, handlerCallback) {
 module.exports = {
   connectRabbit,
   publishRideRequest,
-  publishRideCancelled,
   publishDriverAssignment,
+  publishRideCancelled,
   startRideRequestConsumer,
-  startGenericConsumer,
 };

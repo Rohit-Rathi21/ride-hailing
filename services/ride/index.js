@@ -4,24 +4,22 @@ const express = require("express");
 const mongoose = require("mongoose");
 const morgan = require("morgan");
 const bodyParser = require("body-parser");
-
-const redisClient = require("./redisClient"); // ensure this exports functions you use
-const Ride = require("./models/Ride");
-const rideRoutes = require("./routes/ride");
-
+const redis = require("./redisClient"); // singleton instance
 const {
   connectRabbit,
-  publishRideRequest,
-  publishDriverAssignment,
   startRideRequestConsumer,
+  publishDriverAssignment,
   publishRideCancelled,
+  publishRideRequest // optional export for direct publish usage inside routes
 } = require("./rabbitmq");
+const rideRoutes = require("./routes/ride");
+const Ride = require("./models/Ride");
 
 const app = express();
 app.use(bodyParser.json());
 app.use(morgan("dev"));
 
-// expose publishRideRequest to routes (so router can call req.publishRideRequest or global)
+// Expose the publish function to routes if needed (same pattern we used)
 app.use((req, res, next) => {
   req.publishRideRequest = publishRideRequest;
   next();
@@ -33,21 +31,20 @@ app.get("/", (req, res) => res.send("Ride Service running"));
 const PORT = process.env.PORT || 3004;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://mongo:27017/ridehailing";
 
-/**
- * Pick a driver from Redis (random for MVP)
- */
+// pick a driver from redis set
 async function pickDriver() {
-  // redisClient here should export a client object with srandmember
-  return redisClient.srandmember("online_drivers");
+  try {
+    return await redis.srandmember("online_drivers");
+  } catch (err) {
+    console.error("pickDriver error:", err);
+    return null;
+  }
 }
 
-/**
- * Handler invoked when a ride request message is consumed
- */
 async function handleIncomingRide(data) {
+  // data { riderId, pickup, dropoff }
   try {
     const { riderId, pickup, dropoff } = data;
-
     const ride = await Ride.create({
       riderId,
       pickup,
@@ -55,22 +52,17 @@ async function handleIncomingRide(data) {
       status: "requested",
     });
 
-    // pick driver
     const driverId = await pickDriver();
-
     if (!driverId) {
-      console.log("No drivers available for ride:", ride._id);
-      // Optionally publish to a retry queue or update DB — keep requested
+      console.log("No drivers available for ride:", ride._id.toString());
       return;
     }
 
-    // assign and save
     ride.driverId = driverId;
     ride.status = "assigned";
     ride.assignedAt = new Date();
     await ride.save();
 
-    // publish assignment to drivers
     publishDriverAssignment({
       assignmentId: ride._id.toString(),
       rideId: ride._id.toString(),
@@ -80,40 +72,20 @@ async function handleIncomingRide(data) {
       dropoff,
     });
 
-    console.log(`Ride ${ride._id} assigned to driver ${driverId}`);
+    console.log(`Ride ${ride._id.toString()} assigned to driver ${driverId}`);
   } catch (err) {
     console.error("handleIncomingRide error:", err);
     throw err;
   }
 }
 
-/**
- * Start up: connect to DB, RabbitMQ, start consumer and server
- */
 async function start() {
   try {
     await mongoose.connect(MONGO_URI);
     console.log("Ride Service connected to MongoDB");
 
-    // Connect Redis client (your redisClient module should handle connection)
-    // ioredis auto-connects, so DO NOT call connect()
-try {
-    if (redisClient.status !== "ready" && redisClient.status !== "connecting") {
-      await redisClient.connect();
-    }
-  } catch (err) {
-    console.log("Redis already connected, continuing...");
-  }
-
-  console.log("Ride Service connected to Redis");
-
-
-    // Connect to RabbitMQ and then wire up publish function
-    await connectRabbit();
-    // make publish function globally available (router may use global or req.publishRideRequest)
-    global.publishRideRequest = publishRideRequest;
-
-    // start consuming ride_requests
+    // connect rabbit and start consumer
+    await connectRabbit(); // sets up channel internally
     await startRideRequestConsumer(handleIncomingRide);
 
     app.listen(PORT, () => console.log(`Ride Service running on port ${PORT}`));
