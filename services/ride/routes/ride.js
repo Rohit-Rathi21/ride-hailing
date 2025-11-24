@@ -29,6 +29,29 @@ router.post("/request", async (req, res) => {
 });
 
 /**
+ * GET /ride/pending
+ * Get all pending ride requests for drivers to see
+ * IMPORTANT: Must be defined BEFORE /:id route to avoid matching "pending" as an ID
+ */
+router.get("/pending", async (req, res) => {
+  try {
+    // Only show recent rides from the last hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const rides = await Ride.find({ 
+      status: "requested",
+      createdAt: { $gte: oneHourAgo }
+    })
+    .sort({ createdAt: -1 })
+    .limit(50); // Limit to 50 most recent rides
+    
+    res.json(rides);
+  } catch (err) {
+    console.error("PENDING RIDES ERROR:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
  * GET /ride/:id
  * Rider polls for status updates
  */
@@ -99,23 +122,6 @@ router.post("/cancel", async (req, res) => {
   }
 });
 
-
-
-
-/**
- * GET /ride/pending
- * Get all pending ride requests for drivers to see
- */
-router.get("/pending", async (req, res) => {
-  try {
-    const rides = await Ride.find({ status: "pending" }).sort({ createdAt: -1 });
-    res.json(rides);
-  } catch (err) {
-    console.error("PENDING RIDES ERROR:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
 /**
  * POST /ride/accept
  * Driver accepts a ride (first-come-first-served)
@@ -132,7 +138,7 @@ router.post("/accept", async (req, res) => {
     if (!ride) return res.status(404).json({ message: "Ride not found" });
 
     // Check if ride is still available
-    if (ride.status !== "pending") {
+    if (ride.status !== "requested") {
       return res.status(409).json({ message: "Ride already accepted by another driver" });
     }
 

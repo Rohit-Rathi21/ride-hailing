@@ -50,7 +50,7 @@ async function handleIncomingRide(data) {
       riderId,
       pickup,
       dropoff,
-      status: "pending",
+      status: "requested",
     });
 
     // Get all online drivers
@@ -61,18 +61,23 @@ async function handleIncomingRide(data) {
       return;
     }
 
-    // Store ride in Redis with pending status so all drivers can see it
-    await redis.set(`ride:pending:${ride._id.toString()}`, JSON.stringify({
-      rideId: ride._id.toString(),
-      riderId,
-      pickup,
-      dropoff,
-      status: "pending",
-      createdAt: ride.createdAt
-    }), { EX: 3600 }); // Expire after 1 hour
+    // Store ride in Redis with requested status so all drivers can see it
+    await redis.set(
+      `ride:pending:${ride._id.toString()}`,
+      JSON.stringify({
+        rideId: ride._id.toString(),
+        riderId,
+        pickup,
+        dropoff,
+        status: "requested",
+        createdAt: ride.createdAt
+      }),
+      'EX',
+      3600
+    ); // Expire after 1 hour
 
     // Broadcast to ALL online drivers (no auto-assignment)
-    console.log(`Ride ${ride._id.toString()} broadcast to ${onlineDrivers.length} online drivers`);
+    console.log(`✅ Ride ${ride._id.toString()} broadcast to ${onlineDrivers.length} online drivers`);
   } catch (err) {
     console.error("handleIncomingRide error:", err);
     throw err;
