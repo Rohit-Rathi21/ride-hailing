@@ -83,7 +83,6 @@ router.post("/cancel", async (req, res) => {
     ride.cancelledAt = new Date();
     await ride.save();
 
-    // publish cancel event to driver-service
     publishRideCancelled({
       rideId,
       driverId: ride.driverId,
@@ -96,6 +95,7 @@ router.post("/cancel", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 
 
