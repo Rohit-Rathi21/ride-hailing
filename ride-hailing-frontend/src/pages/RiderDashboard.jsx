@@ -95,7 +95,7 @@ export default function RiderDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0 bg-grid-white/[0.02] pointer-events-none"></div>
       
       <div className="relative z-10 w-full max-w-2xl mx-auto">

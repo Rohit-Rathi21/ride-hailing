@@ -47,7 +47,7 @@ export default function Login() {
   };
 
   return (
-    <div ref={containerRef} className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div ref={containerRef} className="min-h-screen bg-slate-950 flex items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute inset-0 bg-grid-white/[0.02] pointer-events-none"></div>
       
       <div className="relative z-10 w-full max-w-md">
